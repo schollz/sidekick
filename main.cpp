@@ -87,11 +87,11 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
     startup = false;
   }
 
+  bool do_trigger = false;
   if (hw.gate_in_1.State()) {  // gate in
     if (!gate_in) {
       // midi.sysex_printf_buffer("Gate In\n");
-      kick.Trig();
-      env.Trigger();
+      do_trigger = true;
       gate_in = true;
     }
   } else {
@@ -100,13 +100,16 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
 
   if (button.Pressed() && !button_pressed) {
     midi.sysex_printf_buffer("Button Pressed\n");
-    kick.Trig();
-    env.Trigger();
+    do_trigger = true;
     button_pressed = true;
   } else if (!button.Pressed()) {
     button_pressed = false;
   }
 
+  if (do_trigger) {
+    kick.Trig();
+    env.Trigger();
+  }
   float kick_audio[size];
   float kick_total = 0;
   for (size_t i = 0; i < size; i++) {
@@ -142,7 +145,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
 
   for (size_t i = 0; i < size; i++) {
     out[0][i] = audio_in_l_side[i];
-    out[1][i] = audio_in_l_side[i];
+    out[1][i] = audio_in_r_side[i];
   }
 
   midi.sysex_send_buffer();
