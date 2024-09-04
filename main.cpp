@@ -13,9 +13,24 @@ using namespace daisysp;
 
 DaisyPatchSM hw;
 DaisyMidi midi;
+Switch button;
 
+bool button_pressed = false;
 void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
                    size_t size) {
+  button.Debounce();
+  hw.ProcessAllControls();
+  float value = hw.GetAdcValue(CV_1);
+
+  if (button.Pressed() && !button_pressed) {
+    midi.sysex_printf_buffer("CV_1: %f ", value);
+    midi.sysex_printf_buffer("Button Pressed\n");
+    midi.sysex_send_buffer();
+    button_pressed = true;
+  } else if (!button.Pressed()) {
+    button_pressed = false;
+  }
+
   for (size_t i = 0; i < size; i++) {
     out[0][i] = in[0][i]; /**< Copy the left input to the left output */
     out[1][i] = in[1][i]; /**< Copy the right input to the right output */
@@ -26,18 +41,13 @@ int main(void) {
   /** Initialize the patch_sm hardware object */
   hw.Init();
 
+  button.Init(hw.B7);
+
   midi.Init();
 
   hw.SetAudioBlockSize(AUDIO_BLOCK_SIZE);
   hw.StartAudio(AudioCallback);
 
   while (1) {
-    hw.ProcessAllControls();
-
-    /** Get CV_1 Input (0, 1) */
-    float value = hw.GetAdcValue(CV_1);
-    System::Delay(100);
-    midi.sysex_printf_buffer("CV_1: %f\n", value);
-    midi.sysex_send_buffer();
   }
 }

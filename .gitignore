@@ -1,6 +1,7 @@
 # Prerequisites
 *.d
-
+dev/midicom/midicom
+build/*
 # Compiled Object files
 *.slo
 *.lo
