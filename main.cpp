@@ -17,6 +17,7 @@ Switch toggle;
 Compressor comp[2];
 Compressor comp_main[2];
 AnalogBassDrum kick;
+AdEnv env;
 float kick_volume = 4.0f;
 
 bool startup = true;
@@ -36,13 +37,14 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   for (size_t i = 0; i < 4; i++) {
     cv_values[i] = roundf(cv_values[i] * 50) / 50.0f;
     if (cv_values[i] != cv_knobs[i] || startup) {
-      midi.sysex_printf_buffer("CV_%d: %f\n", i + 1, cv_values[i]);
+      midi.sysex_printf_buffer("env: %2.3f, CV_%d: %f\n", env.Process(), i + 1,
+                               cv_values[i]);
       cv_knobs[i] = cv_values[i];
-      if (!toggle_state || true) {
+      if (!toggle_state) {
         // alter kick drum properties when togle is down
         switch (i) {
           case 0:
-            kick_volume = cv_values[i] * 8;
+            kick_volume = cv_values[i] * 4.0f;
             break;
           case 1:
             kick.SetDecay(cv_values[i] * 2);
@@ -58,6 +60,23 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
           default:
             break;
         };
+      } else {
+        // alter the envelope properties when the toggle is up
+        switch (i) {
+          case 0:
+            env.SetMax(1.5f + cv_values[i] * 3.5f);
+            break;
+          case 1:
+            env.SetTime(ADENV_SEG_ATTACK, cv_values[i]);
+            break;
+          case 2:
+            env.SetTime(ADENV_SEG_DECAY, cv_values[i]);
+            break;
+          case 3:
+            break;
+          default:
+            break;
+        }
       }
     }
   }
@@ -70,6 +89,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
     if (!gate_in) {
       // midi.sysex_printf_buffer("Gate In\n");
       kick.Trig();
+      env.Trigger();
       gate_in = true;
     }
   } else {
@@ -79,6 +99,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   if (button.Pressed() && !button_pressed) {
     midi.sysex_printf_buffer("Button Pressed\n");
     kick.Trig();
+    env.Trigger();
     button_pressed = true;
   } else if (!button.Pressed()) {
     button_pressed = false;
@@ -91,7 +112,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
     kick_audio[i] = kick_volume * v;
     kick_total += kick_audio[i];
   }
-  hw.WriteCvOut(CV_OUT_2, kick_total);
+  hw.WriteCvOut(CV_OUT_2, env.Process());
   hw.WriteCvOut(CV_OUT_1, kick_total);
 
   float audio_in_l[size];
@@ -145,6 +166,13 @@ int main(void) {
     comp_main[i].SetRatio(4.0f);
     comp_main[i].AutoMakeup(true);
   }
+
+  env.Init(hw.AudioSampleRate() / AUDIO_BLOCK_SIZE);
+  env.SetTime(ADENV_SEG_ATTACK, 0.05);
+  env.SetTime(ADENV_SEG_DECAY, 0.2);
+  env.SetMin(0.0);
+  env.SetMax(5.0f);
+  env.SetCurve(1);  // linear
 
   kick.Init(hw.AudioSampleRate());
   kick.SetAccent(0.9f);
