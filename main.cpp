@@ -15,6 +15,7 @@ DaisyPatchSM hw;
 DaisyMidi midi;
 Switch button;
 Switch toggle;
+Compressor comp;
 AnalogBassDrum kick;
 float kick_volume = 4.0f;
 
@@ -45,11 +46,11 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
             break;
           case 1:
             kick.SetDecay(cv_values[i]);
-            kick.SetSelfFmAmount(cv_values[i]);
+            kick.SetSelfFmAmount(cv_values[i] / 2.0f);
             break;
           case 2:
             kick.SetAccent(cv_values[i]);
-            kick.SetTone(cv_values[i] / 4);
+            kick.SetTone(cv_values[i] / 4.0f);
             break;
           case 3:
             kick.SetFreq(fmap(cv_values[i], 40.f, 80.f, Mapping::LOG));
@@ -111,11 +112,17 @@ int main(void) {
   toggle.Init(hw.B8);
 
   // initialize audio things
+  comp.Init(AUDIO_SAMPLE_RATE);
   kick.Init(AUDIO_SAMPLE_RATE);
   kick.SetAccent(0.9f);
   kick.SetDecay(0.5f);
   kick.SetSelfFmAmount(0.3f);
   kick.SetAttackFmAmount(0.0f);
+  kick.SetDecay(0.75f);
+  kick.SetSelfFmAmount(0.75f);
+  kick.SetAccent(0.6f);
+  kick.SetTone(0.6f / 4.0f);
+  kick.SetFreq(fmap(0.33f, 40.f, 80.f, Mapping::LOG));
 
   midi.Init();
 
