@@ -92,6 +92,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
     kick_total += kick_audio[i];
   }
   hw.WriteCvOut(CV_OUT_2, kick_total);
+  hw.WriteCvOut(CV_OUT_1, kick_total);
 
   float audio_in_l[size];
   float audio_in_r[size];
