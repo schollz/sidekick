@@ -8,14 +8,14 @@ using namespace daisy;
 using namespace patch_sm;
 using namespace daisysp;
 
-#define AUDIO_BLOCK_SIZE 128
-#define AUDIO_SAMPLE_RATE 48000
+#define AUDIO_BLOCK_SIZE 32
 
 DaisyPatchSM hw;
 DaisyMidi midi;
 Switch button;
 Switch toggle;
-Compressor comp;
+Compressor comp[2];
+Compressor comp_main[2];
 AnalogBassDrum kick;
 float kick_volume = 4.0f;
 
@@ -34,18 +34,18 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   float cv_values[4] = {hw.GetAdcValue(CV_1), hw.GetAdcValue(CV_2),
                         hw.GetAdcValue(CV_3), hw.GetAdcValue(CV_4)};
   for (size_t i = 0; i < 4; i++) {
-    cv_values[i] = roundf(cv_values[i] * 100) / 100.0f;
+    cv_values[i] = roundf(cv_values[i] * 50) / 50.0f;
     if (cv_values[i] != cv_knobs[i] || startup) {
       midi.sysex_printf_buffer("CV_%d: %f\n", i + 1, cv_values[i]);
       cv_knobs[i] = cv_values[i];
-      if (!toggle_state) {
+      if (!toggle_state || true) {
         // alter kick drum properties when togle is down
         switch (i) {
           case 0:
             kick_volume = cv_values[i] * 8;
             break;
           case 1:
-            kick.SetDecay(cv_values[i]);
+            kick.SetDecay(cv_values[i] * 2);
             kick.SetSelfFmAmount(cv_values[i] / 2.0f);
             break;
           case 2:
@@ -68,8 +68,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
 
   if (hw.gate_in_1.State()) {  // gate in
     if (!gate_in) {
-      midi.sysex_printf_buffer("Gate In\n");
-      midi.sysex_send_buffer();
+      // midi.sysex_printf_buffer("Gate In\n");
       kick.Trig();
       gate_in = true;
     }
@@ -78,30 +77,48 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   }
 
   if (button.Pressed() && !button_pressed) {
+    midi.sysex_printf_buffer("Button Pressed\n");
     kick.Trig();
     button_pressed = true;
   } else if (!button.Pressed()) {
     button_pressed = false;
   }
 
-  float kick_audio[AUDIO_BLOCK_SIZE];
+  float kick_audio[size];
+  float kick_total = 0;
   for (size_t i = 0; i < size; i++) {
-    kick_audio[i] = kick_volume * kick.Process(false);
+    float v = kick.Process(false);
+    kick_audio[i] = kick_volume * v;
+    kick_total += kick_audio[i];
   }
+  hw.WriteCvOut(CV_OUT_2, kick_total);
 
-  float audio_in_l[AUDIO_BLOCK_SIZE];
-  float audio_in_r[AUDIO_BLOCK_SIZE];
+  float audio_in_l[size];
+  float audio_in_r[size];
   for (size_t i = 0; i < size; i++) {
     audio_in_l[i] = in[0][i] * 0.5f;
     audio_in_r[i] = in[1][i] * 0.5f;
   }
 
+  // compress the audio in sidechain
+  float audio_in_l_side[size];
+  float audio_in_r_side[size];
+  comp[0].ProcessBlock(audio_in_l, audio_in_l_side, kick_audio, size);
+  comp[1].ProcessBlock(audio_in_r, audio_in_r_side, kick_audio, size);
+
   for (size_t i = 0; i < size; i++) {
-    out[0][i] = audio_in_l[i] +
-                kick_audio[i]; /**< Copy the left input to the left output */
-    out[1][i] = audio_in_r[i] +
-                kick_audio[i]; /**< Copy the right input to the right output */
+    audio_in_l_side[i] = audio_in_l_side[i] + kick_audio[i];
+    audio_in_r_side[i] = audio_in_r_side[i] + kick_audio[i];
   }
+  comp_main[0].ProcessBlock(audio_in_l_side, audio_in_l_side, size);
+  comp_main[1].ProcessBlock(audio_in_r_side, audio_in_r_side, size);
+
+  for (size_t i = 0; i < size; i++) {
+    out[0][i] = audio_in_l_side[i];
+    out[1][i] = audio_in_l_side[i];
+  }
+
+  midi.sysex_send_buffer();
 }
 
 int main(void) {
@@ -112,8 +129,23 @@ int main(void) {
   toggle.Init(hw.B8);
 
   // initialize audio things
-  comp.Init(AUDIO_SAMPLE_RATE);
-  kick.Init(AUDIO_SAMPLE_RATE);
+  for (size_t i = 0; i < 2; i++) {
+    comp[i].Init(hw.AudioSampleRate());
+    comp[i].SetThreshold(-40.0f);
+    comp[i].SetAttack(0.002);
+    comp[i].SetRelease(0.1);
+    comp[i].SetRatio(8.0f);
+    comp[i].AutoMakeup(false);
+
+    comp_main[i].Init(hw.AudioSampleRate());
+    comp_main[i].SetThreshold(-10.0f);
+    comp_main[i].SetAttack(0.02);
+    comp_main[i].SetRelease(0.05);
+    comp_main[i].SetRatio(4.0f);
+    comp_main[i].AutoMakeup(true);
+  }
+
+  kick.Init(hw.AudioSampleRate());
   kick.SetAccent(0.9f);
   kick.SetDecay(0.5f);
   kick.SetSelfFmAmount(0.3f);
