@@ -14,11 +14,14 @@ DaisyPatchSM hw;
 DaisyMidi midi;
 Switch button;
 Switch toggle;
+Overdrive overdrive;
+Limiter limiter;
 Compressor comp[2];
 Compressor comp_main[2];
 AnalogBassDrum kick;
 AdEnv env;
 float kick_volume = 4.0f;
+float kick_drive = 0.0f;
 
 bool startup = true;
 bool button_pressed = false;
@@ -44,7 +47,7 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
         // alter kick drum properties when togle is down
         switch (i) {
           case 0:
-            kick_volume = cv_values[i] * 4.0f;
+            kick_volume = cv_values[i] * 10.0f;
             break;
           case 1:
             kick.SetDecay(cv_values[i] * 2);
@@ -52,10 +55,9 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
             break;
           case 2:
             kick.SetAccent(cv_values[i]);
-            kick.SetTone(cv_values[i] / 4.0f);
             break;
           case 3:
-            kick.SetFreq(fmap(cv_values[i], 40.f, 80.f, Mapping::LOG));
+            kick.SetTone(cv_values[i] / 2.0f);
             break;
           default:
             break;
@@ -108,9 +110,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   float kick_audio[size];
   float kick_total = 0;
   for (size_t i = 0; i < size; i++) {
-    float v = kick.Process(false);
-    kick_audio[i] = kick_volume * v;
+    float v = kick.Process(false) * kick_volume;
+    kick_audio[i] = v;
     kick_total += kick_audio[i];
+  }
+  if (kick_drive > 0.0f) {
+    limiter.ProcessBlock(kick_audio, size, 0.5f);
   }
   hw.WriteCvOut(CV_OUT_2, env.Process());
   hw.WriteCvOut(CV_OUT_1, kick_total);
@@ -118,8 +123,8 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   float audio_in_l[size];
   float audio_in_r[size];
   for (size_t i = 0; i < size; i++) {
-    audio_in_l[i] = in[0][i] * 0.5f;
-    audio_in_r[i] = in[1][i] * 0.5f;
+    audio_in_l[i] = in[0][i];
+    audio_in_r[i] = in[1][i];
   }
 
   // compress the audio in sidechain
@@ -153,10 +158,10 @@ int main(void) {
   // initialize audio things
   for (size_t i = 0; i < 2; i++) {
     comp[i].Init(hw.AudioSampleRate());
-    comp[i].SetThreshold(-40.0f);
+    comp[i].SetThreshold(-18.0f);
     comp[i].SetAttack(0.002);
-    comp[i].SetRelease(0.1);
-    comp[i].SetRatio(8.0f);
+    comp[i].SetRelease(0.05);
+    comp[i].SetRatio(6.0f);
     comp[i].AutoMakeup(false);
 
     comp_main[i].Init(hw.AudioSampleRate());
@@ -174,16 +179,17 @@ int main(void) {
   env.SetMax(5.0f);
   env.SetCurve(1);  // linear
 
+  overdrive.Init();
+  limiter.Init();
+
   kick.Init(hw.AudioSampleRate());
-  kick.SetAccent(0.9f);
-  kick.SetDecay(0.5f);
-  kick.SetSelfFmAmount(0.3f);
+  kick_volume = 0.85 * 10.0f;
+  kick.SetDecay(0.65 * 2);
+  kick.SetSelfFmAmount(0.65 / 2.0f);
   kick.SetAttackFmAmount(0.0f);
-  kick.SetDecay(0.75f);
-  kick.SetSelfFmAmount(0.75f);
-  kick.SetAccent(0.6f);
-  kick.SetTone(0.6f / 4.0f);
-  kick.SetFreq(fmap(0.33f, 40.f, 80.f, Mapping::LOG));
+  kick.SetAccent(0.5f);
+  kick.SetTone(0.42f / 2.0f);
+  // kick.SetFreq(fmap(0.33f, 40.f, 80.f, Mapping::LOG));
 
   midi.Init();
 
