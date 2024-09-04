@@ -18,9 +18,9 @@ Overdrive overdrive;
 Limiter limiter;
 Compressor comp[2];
 Compressor comp_main[2];
-AnalogBassDrum kick;
+AnalogBassDrum kick[2];
 AdEnv env;
-float kick_volume = 4.0f;
+float kick_volume[2] = {4.0f, 4.0f};
 float kick_drive = 0.0f;
 
 bool startup = true;
@@ -40,24 +40,32 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   for (size_t i = 0; i < 4; i++) {
     cv_values[i] = roundf(cv_values[i] * 50) / 50.0f;
     if (cv_values[i] != cv_knobs[i] || startup) {
-      midi.sysex_printf_buffer("env: %2.3f, CV_%d: %f\n", env.Process(), i + 1,
-                               cv_values[i]);
+      // midi.sysex_printf_buffer("env: %2.3f, CV_%d: %f\n", env.Process(), i +
+      // 1,
+      //                          cv_values[i]);
       cv_knobs[i] = cv_values[i];
       if (!toggle_state) {
         // alter kick drum properties when togle is down
         switch (i) {
           case 0:
-            kick_volume = cv_values[i] * 10.0f;
+            kick_volume[0] = cv_values[i] * 9.7f;
+            kick_volume[1] = cv_values[i] * 9.5f;
             break;
           case 1:
-            kick.SetDecay(cv_values[i] * 2);
-            kick.SetSelfFmAmount(cv_values[i] / 2.0f);
+            kick[0].SetDecay(cv_values[i] * (1.9 + (rand() % 100) / 1000.0f));
+            kick[0].SetSelfFmAmount(cv_values[i] /
+                                    (1.9 + (rand() % 100) / 1000.0f));
+            kick[1].SetDecay(cv_values[i] * (1.9 + (rand() % 100) / 1000.0f));
+            kick[1].SetSelfFmAmount(cv_values[i] /
+                                    (1.9 + (rand() % 100) / 1000.0f));
             break;
           case 2:
-            kick.SetAccent(cv_values[i]);
+            kick[0].SetAccent(cv_values[i] * (0.9 + (rand() % 100) / 1000.0f));
+            kick[1].SetAccent(cv_values[i] * (0.9 + (rand() % 100) / 1000.0f));
             break;
           case 3:
-            kick.SetTone(cv_values[i] / 2.0f);
+            kick[0].SetTone(cv_values[i] / (1.9 + (rand() % 100) / 1000.0f));
+            kick[1].SetTone(cv_values[i] / (1.9 + (rand() % 100) / 1000.0f));
             break;
           default:
             break;
@@ -107,21 +115,18 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   }
 
   if (do_trigger) {
-    kick.Trig();
+    kick[0].Trig();
+    kick[1].Trig();
     env.Trigger();
   }
-  float kick_audio[size];
-  float kick_total = 0;
+  float kick_audio_l[size];
+  float kick_audio_r[size];
   for (size_t i = 0; i < size; i++) {
-    float v = kick.Process(false) * kick_volume;
-    kick_audio[i] = v;
-    kick_total += kick_audio[i];
-  }
-  if (kick_drive > 0.0f) {
-    limiter.ProcessBlock(kick_audio, size, 0.5f);
+    kick_audio_l[i] = kick[0].Process(false) * kick_volume[0];
+    kick_audio_r[i] = kick[1].Process(false) * kick_volume[1];
   }
   hw.WriteCvOut(CV_OUT_2, env.Process());
-  hw.WriteCvOut(CV_OUT_1, kick_total);
+  hw.WriteCvOut(CV_OUT_1, env.Process());
 
   float audio_in_l[size];
   float audio_in_r[size];
@@ -133,12 +138,12 @@ void AudioCallback(AudioHandle::InputBuffer in, AudioHandle::OutputBuffer out,
   // compress the audio in sidechain
   float audio_in_l_side[size];
   float audio_in_r_side[size];
-  comp[0].ProcessBlock(audio_in_l, audio_in_l_side, kick_audio, size);
-  comp[1].ProcessBlock(audio_in_r, audio_in_r_side, kick_audio, size);
+  comp[0].ProcessBlock(audio_in_l, audio_in_l_side, kick_audio_l, size);
+  comp[1].ProcessBlock(audio_in_r, audio_in_r_side, kick_audio_r, size);
 
   for (size_t i = 0; i < size; i++) {
-    audio_in_l_side[i] = audio_in_l_side[i] + kick_audio[i];
-    audio_in_r_side[i] = audio_in_r_side[i] + kick_audio[i];
+    audio_in_l_side[i] = audio_in_l_side[i] + kick_audio_l[i];
+    audio_in_r_side[i] = audio_in_r_side[i] + kick_audio_r[i];
   }
   comp_main[0].ProcessBlock(audio_in_l_side, audio_in_l_side, size);
   comp_main[1].ProcessBlock(audio_in_r_side, audio_in_r_side, size);
@@ -161,10 +166,10 @@ int main(void) {
   // initialize audio things
   for (size_t i = 0; i < 2; i++) {
     comp[i].Init(hw.AudioSampleRate());
-    comp[i].SetThreshold(-18.0f);
-    comp[i].SetAttack(0.002);
-    comp[i].SetRelease(0.05);
-    comp[i].SetRatio(6.0f);
+    comp[i].SetThreshold(-24.0f + (rand() % 300) / 100.0f);
+    comp[i].SetAttack(0.002 + (rand() % 5) / 1000.0f);
+    comp[i].SetRelease(0.1 + (rand() % 50) / 1000.0f);
+    comp[i].SetRatio(8.0f + (rand() % 5) / 1000.0f);
     comp[i].AutoMakeup(false);
 
     comp_main[i].Init(hw.AudioSampleRate());
@@ -185,14 +190,15 @@ int main(void) {
   overdrive.Init();
   limiter.Init();
 
-  kick.Init(hw.AudioSampleRate());
-  kick_volume = 0.85 * 10.0f;
-  kick.SetDecay(0.65 * 2);
-  kick.SetSelfFmAmount(0.65 / 2.0f);
-  kick.SetAttackFmAmount(0.0f);
-  kick.SetAccent(0.5f);
-  kick.SetTone(0.42f / 2.0f);
-  // kick.SetFreq(fmap(0.33f, 40.f, 80.f, Mapping::LOG));
+  for (size_t i = 0; i < 2; i++) {
+    kick[i].Init(hw.AudioSampleRate());
+    kick_volume[i] = 0.85 * 10.0f;
+    kick[i].SetDecay(0.65 * 2);
+    kick[i].SetSelfFmAmount(0.65 / 2.0f);
+    kick[i].SetAttackFmAmount(0.0f);
+    kick[i].SetAccent(0.5f);
+    kick[i].SetTone(0.42f / 2.0f);
+  }
 
   midi.Init();
 
