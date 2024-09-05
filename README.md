@@ -33,3 +33,12 @@ When the B8 toggle is up, you can control out the CV output is affected by the t
 | cv_3    | Decay Time         | Controls the decay time of the envelope                     |
 | cv_4    | (Unused)           | n/a                                                         |
 
+
+### Development
+
+I use midi sysex messages for logging, listen to them using my tool:
+
+```
+curl https://getcomms.schollz.com | bash
+comms --midi daisy
+```
